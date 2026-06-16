@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>カメラ診断</title>
+<script src="https://cdn.jsdelivr.net/npm/@zxing/library@0.19.3/umd/index.min.js"></script>
+<style>
+  body { background:#111; color:#eee; font-family:sans-serif; padding:20px; font-size:14px; }
+  h2 { font-size:16px; margin-bottom:16px; color:#4ade80; }
+  .log { background:#1a1a2e; border-radius:8px; padding:14px; margin-bottom:12px; line-height:1.7; }
+  .ok  { color:#4ade80; }
+  .err { color:#f87171; }
+  .warn{ color:#fbbf24; }
+  button {
+    display:block; width:100%; padding:14px;
+    background:#4ade80; color:#012e27; border:none;
+    border-radius:10px; font-size:15px; font-weight:700;
+    margin-bottom:12px; cursor:pointer;
+  }
+  video { width:100%; border-radius:8px; margin-top:12px; background:#000; }
+</style>
+</head>
+<body>
+<h2>カメラ診断ツール</h2>
+<button onclick="runDiag()">診断スタート</button>
+<div class="log" id="log">ボタンを押すと診断を開始します…</div>
+<video id="v" autoplay muted playsinline></video>
+
+<script>
+const log = document.getElementById('log');
+function add(msg, cls) {
+  log.innerHTML += `<div class="${cls||''}">${msg}</div>`;
+}
+
+async function runDiag() {
+  log.innerHTML = '';
+
+  // 1. HTTPS確認
+  const isHttps = location.protocol === 'https:' || location.hostname === 'localhost';
+  add('① プロトコル: ' + location.protocol + ' → ' + (isHttps ? '✅ OK' : '❌ HTTPSが必要'), isHttps ? 'ok' : 'err');
+
+  // 2. ZXing確認
+  const hasZxing = typeof ZXing !== 'undefined';
+  add('② ZXingライブラリ: ' + (hasZxing ? '✅ 読み込み済み' : '❌ 未読み込み'), hasZxing ? 'ok' : 'err');
+
+  // 3. getUserMedia確認
+  const hasGUM = !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia);
+  add('③ getUserMedia API: ' + (hasGUM ? '✅ 利用可能' : '❌ 非対応'), hasGUM ? 'ok' : 'err');
+
+  if (!hasGUM) { add('→ ブラウザがカメラAPIに非対応です。Chromeで開いてください。', 'err'); return; }
+
+  // 4. カメラ権限テスト
+  add('④ カメラ権限を要求中…', 'warn');
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
+    add('④ カメラ権限: ✅ 許可されました', 'ok');
+    document.getElementById('v').srcObject = stream;
+
+    // 5. デバイス一覧
+    const devices = await navigator.mediaDevices.enumerateDevices();
+    const cams = devices.filter(d => d.kind === 'videoinput');
+    add('⑤ カメラ台数: ' + cams.length + '台', cams.length ? 'ok' : 'err');
+    cams.forEach((c, i) => add('　カメラ' + (i+1) + ': ' + (c.label || '名前なし（権限確認後に表示）'), 'ok'));
+
+    // 6. ZXingでデバイス取得
+    if (hasZxing) {
+      try {
+        const zDevices = await ZXing.BrowserCodeReader.listVideoInputDevices();
+        add('⑥ ZXing認識カメラ数: ' + zDevices.length + '台', zDevices.length ? 'ok' : 'err');
+        if (zDevices.length === 0) add('→ ZXingがカメラを認識できません。', 'err');
+      } catch(e) {
+        add('⑥ ZXingエラー: ' + e.message, 'err');
+      }
+    }
+
+    add('─────────────────', '');
+    add('✅ 診断完了。上にカメラ映像が表示されていれば正常です。', 'ok');
+    add('問題がある項目の内容をコピーして共有してください。', '');
+
+  } catch(e) {
+    add('④ カメラ権限エラー: ❌ ' + e.name, 'err');
+    if (e.name === 'NotAllowedError')
+      add('→ カメラが「ブロック」されています。アドレスバー横の🔒をタップして「カメラ→許可」に変更してください。', 'err');
+    else if (e.name === 'NotFoundError')
+      add('→ カメラデバイスが見つかりません。', 'err');
+    else if (e.name === 'NotReadableError')
+      add('→ カメラが他のアプリに使用中です。他のアプリを閉じてください。', 'err');
+    else
+      add('→ ' + e.message, 'err');
+  }
+}
+</script>
+</body>
+</html>
